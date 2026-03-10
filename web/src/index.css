@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+
+  body {
+    @apply bg-claude-50 text-claude-900 antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  code, pre {
+    font-family: 'Fira Code', monospace;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-dark focus:ring-accent;
+  }
+
+  .btn-secondary {
+    @apply btn bg-claude-200 text-claude-800 hover:bg-claude-300 focus:ring-claude-400;
+  }
+
+  .btn-ghost {
+    @apply btn text-claude-600 hover:bg-claude-100 focus:ring-claude-300;
+  }
+
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-claude-200 overflow-hidden;
+  }
+
+  .input {
+    @apply w-full px-4 py-2 bg-white border border-claude-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .scrollbar {
+    @apply overflow-auto;
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.claude.300') theme('colors.claude.100');
+  }
+
+  .scrollbar::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  .scrollbar::-webkit-scrollbar-track {
+    @apply bg-claude-100 rounded;
+  }
+
+  .scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-claude-300 rounded;
+  }
+
+  .scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-claude-400;
+  }
+}
+
+/* Message content styles */
+.message-content p {
+  @apply mb-2 last:mb-0;
+}
+
+.message-content pre {
+  @apply bg-claude-900 text-claude-50 p-4 rounded-lg overflow-x-auto my-3;
+}
+
+.message-content code {
+  @apply bg-claude-100 px-1.5 py-0.5 rounded text-sm;
+}
+
+.message-content pre code {
+  @apply bg-transparent p-0;
+}

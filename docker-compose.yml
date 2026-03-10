@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  claude-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: claude-dashboard
+    ports:
+      - "3727:3727"
+    volumes:
+      - ~/.claude/projects:/app/data/claude-projects:ro
+      - ./data:/app/data/dashboard
+    environment:
+      - NODE_ENV=production
+      - PORT=3727
+      - CLAUDE_PROJECTS_PATH=/app/data/claude-projects
+      - DASHBOARD_DATA_PATH=/app/data/dashboard
+    restart: unless-stopped
