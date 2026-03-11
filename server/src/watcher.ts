@@ -1,6 +1,7 @@
 import chokidar from 'chokidar';
 import path from 'path';
 import { broadcast } from './websocket.js';
+import { getScannerInstance } from './routes/scanner.js';
 
 let watcher: ReturnType<typeof chokidar.watch> | null = null;
 
@@ -24,6 +25,8 @@ export function startFileWatcher(basePath: string) {
     console.log('New session file:', filePath);
     const info = parseSessionPath(filePath, basePath);
     if (info) {
+      // 使该项目缓存失效
+      getScannerInstance().invalidateProjectCache(info.projectName);
       broadcast({
         type: 'session_created',
         data: info,
@@ -36,6 +39,8 @@ export function startFileWatcher(basePath: string) {
     console.log('Session file changed:', filePath);
     const info = parseSessionPath(filePath, basePath);
     if (info) {
+      // 使该项目缓存失效
+      getScannerInstance().invalidateProjectCache(info.projectName);
       broadcast({
         type: 'session_updated',
         data: info,
@@ -48,6 +53,8 @@ export function startFileWatcher(basePath: string) {
     console.log('Session file removed:', filePath);
     const info = parseSessionPath(filePath, basePath);
     if (info) {
+      // 使该项目缓存失效
+      getScannerInstance().invalidateProjectCache(info.projectName);
       broadcast({
         type: 'session_removed',
         data: info,

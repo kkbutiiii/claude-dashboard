@@ -4,18 +4,54 @@ import type { Project, Session, ClaudeMessage } from './types.js';
 
 export class ProjectScanner {
   private basePath: string;
+  private cache: Map<string, { data: unknown; timestamp: number }> = new Map();
+  private readonly CACHE_TTL = 30000; // 30秒缓存
+  private scanningPromise: Promise<Project[]> | null = null;
 
   constructor(basePath: string) {
     this.basePath = basePath;
   }
 
+  // 清除缓存
+  invalidateCache(): void {
+    this.cache.clear();
+    this.scanningPromise = null;
+  }
+
+  // 清除特定项目的缓存
+  invalidateProjectCache(projectName: string): void {
+    this.cache.delete(`project:${projectName}`);
+    this.cache.delete('projects');
+  }
+
   async scanAllProjects(): Promise<Project[]> {
+    // 检查缓存
+    const cached = this.cache.get('projects') as { data: Project[]; timestamp: number } | undefined;
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.data;
+    }
+
+    // 防止并发扫描
+    if (this.scanningPromise) {
+      return this.scanningPromise;
+    }
+
+    this.scanningPromise = this.performScan();
+    try {
+      const projects = await this.scanningPromise;
+      // 更新缓存
+      this.cache.set('projects', { data: projects, timestamp: Date.now() });
+      return projects;
+    } finally {
+      this.scanningPromise = null;
+    }
+  }
+
+  private async performScan(): Promise<Project[]> {
     const projects: Project[] = [];
 
     try {
-      console.log('Scanning base path:', this.basePath);
       const entries = await fs.readdir(this.basePath, { withFileTypes: true });
-      console.log('Found entries:', entries.length);
 
       for (const entry of entries) {
         if (entry.isDirectory()) {
@@ -32,6 +68,20 @@ export class ProjectScanner {
     return projects.sort((a, b) =>
       new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime()
     );
+  }
+
+  // 扫描单个项目（带缓存）
+  async scanSingleProject(projectName: string): Promise<Project | null> {
+    // 检查缓存
+    const cacheKey = `project:${projectName}`;
+    const cached = this.cache.get(cacheKey) as { data: Project | null; timestamp: number } | undefined;
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      return cached.data;
+    }
+
+    const project = await this.scanProject(projectName);
+    this.cache.set(cacheKey, { data: project, timestamp: Date.now() });
+    return project;
   }
 
   private async scanProject(projectName: string): Promise<Project | null> {

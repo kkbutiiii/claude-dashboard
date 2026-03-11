@@ -13,17 +13,12 @@ export function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
 
-  const { projects, selectedProject, setSelectedProject, setProjects } = useStore()
+  const { projects, selectedProject, setSelectedProject, fetchProjects } = useStore()
 
   useEffect(() => {
-    // Fetch projects on mount
-    fetch('/api/scanner/projects')
-      .then(res => res.json())
-      .then(data => {
-        setProjects(data.projects)
-      })
-      .catch(console.error)
-  }, [setProjects])
+    // Fetch projects on mount (带防抖)
+    fetchProjects()
+  }, [fetchProjects])
 
   useEffect(() => {
     // WebSocket connection for real-time updates
@@ -33,16 +28,14 @@ export function Layout({ children }: LayoutProps) {
       const message = JSON.parse(event.data)
       console.log('WebSocket message:', message)
 
-      // Refresh projects on session changes
+      // Refresh projects on session changes (使用带防抖的请求)
       if (message.type === 'session_created' || message.type === 'session_updated') {
-        fetch('/api/scanner/projects')
-          .then(res => res.json())
-          .then(data => setProjects(data.projects))
+        fetchProjects()
       }
     }
 
     return () => ws.close()
-  }, [setProjects])
+  }, [fetchProjects])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()

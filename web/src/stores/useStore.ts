@@ -86,6 +86,9 @@ interface StoreState {
   searchResults: Session[]
   isLoading: boolean
   error: string | null
+  // 请求状态
+  projectsLoading: boolean
+  projectsLastFetched: number
 
   // Actions
   setProjects: (projects: Project[]) => void
@@ -102,9 +105,11 @@ interface StoreState {
   setSearchResults: (results: Session[]) => void
   setIsLoading: (loading: boolean) => void
   setError: (error: string | null) => void
+  // 带防抖的请求方法
+  fetchProjects: () => Promise<void>
 }
 
-export const useStore = create<StoreState>((set) => ({
+export const useStore = create<StoreState>((set, get) => ({
   projects: [],
   selectedProject: null,
   selectedSession: null,
@@ -115,6 +120,8 @@ export const useStore = create<StoreState>((set) => ({
   searchResults: [],
   isLoading: false,
   error: null,
+  projectsLoading: false,
+  projectsLastFetched: 0,
 
   setProjects: (projects) => set({ projects }),
   setSelectedProject: (name) => set({ selectedProject: name }),
@@ -140,4 +147,29 @@ export const useStore = create<StoreState>((set) => ({
   setSearchResults: (results) => set({ searchResults: results }),
   setIsLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
+
+  // 带防抖的项目列表请求 - 30秒内不重复请求
+  fetchProjects: async () => {
+    const state = get()
+    // 如果正在加载，直接返回
+    if (state.projectsLoading) return
+    // 如果30秒内已经请求过，直接返回
+    if (Date.now() - state.projectsLastFetched < 30000) return
+
+    set({ projectsLoading: true })
+    try {
+      const res = await fetch('/api/scanner/projects')
+      const data = await res.json()
+      if (data.projects) {
+        set({
+          projects: data.projects,
+          projectsLastFetched: Date.now(),
+        })
+      }
+    } catch (err) {
+      console.error('Failed to fetch projects:', err)
+    } finally {
+      set({ projectsLoading: false })
+    }
+  },
 }))

@@ -7,12 +7,20 @@ const execAsync = promisify(exec);
 
 const router = Router();
 
+// 单例扫描器实例
+let scannerInstance: ProjectScanner | null = null;
+
 const getScanner = () => {
-  const basePath = process.env.CLAUDE_PROJECTS_PATH ||
-    `${process.env.HOME || process.env.USERPROFILE}/.claude/projects`;
-  console.log('Scanner base path:', basePath);
-  return new ProjectScanner(basePath);
+  if (!scannerInstance) {
+    const basePath = process.env.CLAUDE_PROJECTS_PATH ||
+      `${process.env.HOME || process.env.USERPROFILE}/.claude/projects`;
+    scannerInstance = new ProjectScanner(basePath);
+  }
+  return scannerInstance;
 };
+
+// 导出扫描器实例以便其他模块使用（如 watcher）
+export const getScannerInstance = getScanner;
 
 // GET /api/scanner/projects
 router.get('/projects', async (req, res) => {
@@ -31,8 +39,8 @@ router.get('/projects/:name', async (req, res) => {
   try {
     const { name } = req.params;
     const scanner = getScanner();
-    const projects = await scanner.scanAllProjects();
-    const project = projects.find(p => p.name === name);
+    // 使用 scanSingleProject 避免扫描所有项目
+    const project = await scanner.scanSingleProject(name);
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
@@ -57,9 +65,8 @@ router.get('/projects/:name/markdown', async (req, res) => {
 
     const scanner = getScanner();
 
-    // Get project to find sourcePath
-    const projects = await scanner.scanAllProjects();
-    const project = projects.find(p => p.name === name);
+    // Get project to find sourcePath - 使用 scanSingleProject 优化
+    const project = await scanner.scanSingleProject(name);
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
@@ -157,8 +164,8 @@ router.post('/projects/:name/open-folder', async (req, res) => {
   try {
     const { name } = req.params;
     const scanner = getScanner();
-    const projects = await scanner.scanAllProjects();
-    const project = projects.find(p => p.name === name);
+    // 使用 scanSingleProject 避免扫描所有项目
+    const project = await scanner.scanSingleProject(name);
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });

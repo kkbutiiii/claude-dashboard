@@ -4,7 +4,7 @@ import { Search, ChevronRight, Hash, Clock, Filter, X, Calendar, User, ArrowLeft
 import { formatDistanceToNow, format } from 'date-fns'
 import { MessageRenderer } from './MessageRenderer'
 import { BookmarkButton } from './BookmarkButton'
-import type { Message } from '../stores/useStore'
+import { useStore, type Message } from '../stores/useStore'
 
 interface SearchFilters {
   project: string
@@ -78,17 +78,22 @@ export function SearchResults() {
       .catch(() => setBookmarks([]))
   }, [isDrawerOpen])
 
-  // Load project options on mount
+  // 使用全局状态中的项目列表
+  const { projects, fetchProjects } = useStore()
+
   useEffect(() => {
-    fetch('/api/scanner/projects')
-      .then(res => res.json())
-      .then(data => {
-        if (data.projects) {
-          setProjectOptions(data.projects.map((p: { name: string }) => p.name).sort())
-        }
-      })
-      .catch(err => console.error('Failed to load projects:', err))
-  }, [])
+    // 如果项目列表为空，先获取
+    if (projects.length === 0) {
+      fetchProjects()
+    }
+  }, [projects.length, fetchProjects])
+
+  useEffect(() => {
+    // 从全局状态更新项目选项
+    if (projects.length > 0) {
+      setProjectOptions(projects.map(p => p.name).sort())
+    }
+  }, [projects])
 
   // Update URL when filters change
   useEffect(() => {
