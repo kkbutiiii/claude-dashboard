@@ -7,6 +7,33 @@ interface LayoutProps {
   children: React.ReactNode
 }
 
+// Get display name from project - use sourcePath folder name or decoded name
+function getProjectDisplayName(project: { name: string; displayName?: string; sourcePath?: string }): string {
+  // If there's a custom displayName, use it
+  if (project.displayName && project.displayName !== project.name) {
+    return project.displayName
+  }
+
+  // Try to extract folder name from sourcePath (actual project location)
+  if (project.sourcePath) {
+    // Handle both Windows and Unix paths
+    const parts = project.sourcePath.split(/[/\\]/)
+    const lastPart = parts[parts.length - 1]
+    if (lastPart) {
+      return lastPart
+    }
+  }
+
+  // Fallback: decode project name (handle path-like format like "C--Users-User-project")
+  const name = project.name
+  if (name.includes('--')) {
+    const parts = name.split('--')
+    return parts[parts.length - 1]
+  }
+
+  return name
+}
+
 export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -119,7 +146,7 @@ export function Layout({ children }: LayoutProps) {
                     : 'text-claude-600 hover:bg-claude-100'}`}
               >
                 <FolderGit2 className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">{project.name}</span>
+                <span className="truncate">{getProjectDisplayName(project)}</span>
                 <span className="ml-auto text-xs text-claude-400 bg-claude-100 px-2 py-0.5 rounded-full">
                   {project.sessionCount}
                 </span>

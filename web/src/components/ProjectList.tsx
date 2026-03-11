@@ -74,6 +74,33 @@ function getInitials(name: string): string {
     .slice(0, 2)
 }
 
+// Get display name from project - use sourcePath folder name or decoded name
+function getProjectDisplayName(project: { name: string; displayName?: string; sourcePath?: string }): string {
+  // If there's a custom displayName, use it
+  if (project.displayName && project.displayName !== project.name) {
+    return project.displayName
+  }
+
+  // Try to extract folder name from sourcePath (actual project location)
+  if (project.sourcePath) {
+    // Handle both Windows and Unix paths
+    const parts = project.sourcePath.split(/[/\\]/)
+    const lastPart = parts[parts.length - 1]
+    if (lastPart) {
+      return lastPart
+    }
+  }
+
+  // Fallback: decode project name (handle path-like format like "C--Users-User-project")
+  const name = project.name
+  if (name.includes('--')) {
+    const parts = name.split('--')
+    return parts[parts.length - 1]
+  }
+
+  return name
+}
+
 // Code block component for markdown
 function CodeBlock({ inline, className, children }: { inline?: boolean; className?: string; children?: React.ReactNode }) {
   const match = /language-(\w+)/.exec(className || '')
@@ -368,7 +395,7 @@ export function ProjectList() {
                 {projectInfo.avatar ? (
                   <img src={projectInfo.avatar} alt="" className="w-full h-full object-cover" />
                 ) : (
-                  getInitials(projectInfo.displayName)
+                  getInitials(getProjectDisplayName(projectInfo))
                 )}
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                   <Image className="w-6 h-6" />
@@ -415,7 +442,7 @@ export function ProjectList() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 mb-2 group">
-                    <h1 className="text-2xl font-bold text-claude-900">{projectInfo.displayName}</h1>
+                    <h1 className="text-2xl font-bold text-claude-900">{getProjectDisplayName(projectInfo)}</h1>
                     <button
                       onClick={startEditDisplayName}
                       className="opacity-0 group-hover:opacity-100 p-1 text-claude-400 hover:text-accent transition-opacity"
@@ -425,10 +452,16 @@ export function ProjectList() {
                   </div>
                 )}
 
-                {/* Original Name (if different) */}
-                {projectInfo.displayName !== projectInfo.name && (
-                  <p className="text-xs text-claude-400 mb-2">{projectInfo.name}</p>
-                )}
+                {/* Storage Path (shown when different from display) */}
+                {(() => {
+                  const displayName = getProjectDisplayName(projectInfo)
+                  const storagePath = projectInfo.name
+                  // Only show storage path if display name is different from storage path
+                  if (displayName !== storagePath) {
+                    return <p className="text-xs text-claude-400 mb-2">Storage: {storagePath}</p>
+                  }
+                  return null
+                })()}
 
                 {/* Project Path with Open Folder Button */}
                 <div className="flex items-center gap-2 text-sm text-claude-500 mb-3">
@@ -731,13 +764,13 @@ export function ProjectList() {
                   {project.avatar ? (
                     <img src={project.avatar} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    getInitials(project.displayName || project.name)
+                    getInitials(getProjectDisplayName(project))
                   )}
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-claude-900 text-lg group-hover:text-accent transition-colors truncate">
-                    {project.displayName || project.name}
+                    {getProjectDisplayName(project)}
                   </h3>
                   <span className="badge bg-claude-100 text-claude-600 text-xs">
                     {project.sessionCount} sessions
