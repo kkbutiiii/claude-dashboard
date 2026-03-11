@@ -563,7 +563,7 @@ export function ProjectList() {
   if (selectedProject && projectInfo) {
     return (
       <div className="h-full overflow-y-auto scrollbar p-6">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-none">
           {/* Project Header Card */}
           <div className="card p-6 mb-6">
             <div className="flex items-start gap-4">
