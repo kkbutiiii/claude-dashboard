@@ -7,28 +7,30 @@ interface LayoutProps {
   children: React.ReactNode
 }
 
-// Get display name from project - use sourcePath folder name or decoded name
+// Get display name from project - extract from project folder name
 function getProjectDisplayName(project: { name: string; displayName?: string; sourcePath?: string }): string {
-  // If there's a custom displayName, use it
-  if (project.displayName && project.displayName !== project.name) {
-    return project.displayName
+  // Extract project name from storage folder name
+  // Handle format like "C--Users-11639-Documents-trae-projects-ClaudeDashboard"
+  // or "C--Users-11639-Documents-trae-projects-20260310-Claude-Dashboard"
+  let name = project.name
+
+  // Remove C-- prefix if present
+  if (name.startsWith('C--')) {
+    name = name.substring(3)
   }
 
-  // Try to extract folder name from sourcePath (actual project location)
-  if (project.sourcePath) {
-    // Handle both Windows and Unix paths
-    const parts = project.sourcePath.split(/[/\\]/)
-    const lastPart = parts[parts.length - 1]
-    if (lastPart) {
-      return lastPart
-    }
+  // The format is: Users-11639-Documents-trae-projects-PROJECT_NAME
+  // We need to extract the project name after "trae-projects-"
+  const traefikIndex = name.indexOf('trae-projects-')
+  if (traefikIndex !== -1) {
+    return name.substring(traefikIndex + 'trae-projects-'.length)
   }
 
-  // Fallback: decode project name (handle path-like format like "C--Users-User-project")
-  const name = project.name
-  if (name.includes('--')) {
-    const parts = name.split('--')
-    return parts[parts.length - 1]
+  // Fallback: try to find the last meaningful segment
+  // If it's something like "Users-11639--claude-skills", return the part after "Users-11639--"
+  const userPrefixIndex = name.indexOf('Users-11639--')
+  if (userPrefixIndex !== -1) {
+    return name.substring(userPrefixIndex + 'Users-11639--'.length)
   }
 
   return name

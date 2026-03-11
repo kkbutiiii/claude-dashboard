@@ -150,7 +150,7 @@ export class ProjectScanner {
         displayName,
         path: projectPath,
         sourcePath,
-        sessions,
+        sessions: sessions.map(s => ({ ...s, messages: [] })), // 不包含消息内容，减少数据量
         sessionCount: sessions.length,
         lastUpdated: sessions[0]?.updatedAt || new Date().toISOString(),
         markdownFiles,
