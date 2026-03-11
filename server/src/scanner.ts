@@ -239,6 +239,40 @@ export class ProjectScanner {
             continue;
           }
 
+          // Skip system messages that only contain metadata (no actual content)
+          if (message.type === 'system') {
+            // Only keep system messages with actual content or important subtypes
+            const hasContent = message.message?.content &&
+              (typeof message.message.content === 'string' ? message.message.content.trim() : true);
+            const isImportantSubtype = ['error', 'warning', 'notification'].includes(message.subtype || '');
+            if (!hasContent && !isImportantSubtype) {
+              continue;
+            }
+          }
+
+          // Skip progress messages without displayable content
+          if (message.type === 'progress') {
+            // Progress messages are internal state tracking, not user-facing content
+            continue;
+          }
+
+          // Skip assistant messages that only contain tool_use (no actual text content)
+          if (message.type === 'assistant') {
+            const content = message.message?.content;
+            if (Array.isArray(content)) {
+              // Check if content only contains non-displayable types (tool_use, thinking, etc.)
+              const hasDisplayableContent = content.some(
+                (item: any) => item.type === 'text' && item.text?.trim()
+              );
+              if (!hasDisplayableContent) {
+                continue;
+              }
+            } else if (typeof content === 'string' && !content.trim()) {
+              // Skip empty string content
+              continue;
+            }
+          }
+
           messages.push(message);
 
           // Calculate tokens and cost
