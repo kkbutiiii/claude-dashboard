@@ -24,10 +24,14 @@ import {
   User,
   Plus,
   Minus,
+  Download,
+  ExternalLink,
 } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 import { useStore, type Session } from '../stores/useStore'
 import { SessionTagManager } from './SessionTagManager'
+import { MessageRenderer } from './MessageRenderer'
+import { BookmarkButton } from './BookmarkButton'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -294,7 +298,7 @@ function GitInfo({
 export function ProjectList() {
   const { projectName: encodedProjectName } = useParams()
   const navigate = useNavigate()
-  const { projects, selectedProject, setSelectedProject, tags, sessionTags } = useStore()
+  const { projects, selectedProject, setSelectedProject, tags, sessionTags, bookmarks } = useStore()
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null)
   const [projectSessions, setProjectSessions] = useState<Session[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -321,6 +325,11 @@ export function ProjectList() {
   const [gitHistory, setGitHistory] = useState<GitHistory | null>(null)
   const [isGitExpanded, setIsGitExpanded] = useState(false)
   const [isLoadingGit, setIsLoadingGit] = useState(false)
+
+  // Session drawer
+  const [isSessionDrawerOpen, setIsSessionDrawerOpen] = useState(false)
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null)
+  const [isLoadingSession, setIsLoadingSession] = useState(false)
 
   // Decode URL parameter
   const projectName = encodedProjectName ? decodeURIComponent(encodedProjectName) : null
@@ -374,9 +383,27 @@ export function ProjectList() {
   }
 
   const handleSessionClick = (session: Session) => {
-    const encodedProject = encodeURIComponent(encodeURIComponent(session.projectName))
-    const encodedSession = encodeURIComponent(session.id)
-    navigate(`/session/${encodedProject}/${encodedSession}`)
+    setIsSessionDrawerOpen(true)
+    loadSession(session.projectName, session.id)
+  }
+
+  const loadSession = async (projectName: string, sessionId: string) => {
+    setIsLoadingSession(true)
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(projectName)}/${encodeURIComponent(sessionId)}`)
+      if (!response.ok) throw new Error('Failed to load session')
+      const data = await response.json()
+      setSelectedSession(data.session)
+    } catch (error) {
+      console.error('Failed to load session:', error)
+    } finally {
+      setIsLoadingSession(false)
+    }
+  }
+
+  const closeSessionDrawer = () => {
+    setIsSessionDrawerOpen(false)
+    setTimeout(() => setSelectedSession(null), 300)
   }
 
   const handleResumeSession = (sessionId: string) => {
@@ -924,6 +951,153 @@ export function ProjectList() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Session Drawer */}
+        {isSessionDrawerOpen && (
+          <div
+            className="fixed inset-0 bg-black/30 z-40 transition-opacity"
+            onClick={closeSessionDrawer}
+          />
+        )}
+
+        <div
+          className={`fixed top-0 right-0 h-full w-full max-w-4xl bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${
+            isSessionDrawerOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
+          {isLoadingSession ? (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-claude-500">Loading session...</div>
+            </div>
+          ) : selectedSession ? (
+            <div className="h-full flex flex-col">
+              {/* Drawer Header */}
+              <div className="bg-white border-b border-claude-200 p-4 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={closeSessionDrawer}
+                    className="p-2 hover:bg-claude-100 rounded-lg transition-colors"
+                  >
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                  <div>
+                    <h2 className="text-xl font-bold text-claude-900">{selectedSession.id}</h2>
+                    <p className="text-sm text-claude-500">
+                      {getProjectDisplayName({ name: selectedSession.projectName })} • {format(new Date(selectedSession.createdAt), 'MMM d, yyyy HH:mm')}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const cmd = `claude --resume ${selectedSession.id}`
+                      navigator.clipboard.writeText(cmd)
+                      alert(`Copied: ${cmd}`)
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-claude-600 hover:bg-claude-100 rounded-lg transition-colors"
+                    title="Copy resume command"
+                  >
+                    <Terminal className="w-4 h-4" />
+                    Resume
+                  </button>
+                  <button
+                    onClick={() => {
+                      window.open(`/api/sessions/${encodeURIComponent(selectedSession.projectName)}/${encodeURIComponent(selectedSession.id)}/export/markdown`, '_blank')
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-claude-600 hover:bg-claude-100 rounded-lg transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export
+                  </button>
+                  <button
+                    onClick={() => {
+                      const encodedProject = encodeURIComponent(encodeURIComponent(selectedSession.projectName))
+                      const encodedSession = encodeURIComponent(selectedSession.id)
+                      navigate(`/session/${encodedProject}/${encodedSession}`)
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-claude-600 hover:bg-claude-100 rounded-lg transition-colors"
+                    title="Open in full page"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Stats Bar */}
+              <div className="bg-claude-50 border-b border-claude-200 px-6 py-3">
+                <div className="flex items-center gap-6 text-sm text-claude-600">
+                  <span className="flex items-center gap-1">
+                    <MessageSquare className="w-4 h-4" />
+                    {selectedSession.messageCount} messages
+                  </span>
+                  {selectedSession.totalTokens && (
+                    <span className="flex items-center gap-1">
+                      <Hash className="w-4 h-4" />
+                      {selectedSession.totalTokens.toLocaleString()} tokens
+                    </span>
+                  )}
+                  {selectedSession.estimatedCost && (
+                    <span className="flex items-center gap-1">
+                      <DollarSign className="w-4 h-4" />
+                      ${selectedSession.estimatedCost.toFixed(4)}
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-4 h-4" />
+                    {format(new Date(selectedSession.updatedAt), 'MMM d, HH:mm')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Messages List */}
+              <div className="flex-1 overflow-y-auto p-6 bg-claude-50">
+                <div className="max-w-3xl mx-auto space-y-4">
+                  {selectedSession.messages?.map((message, index) => (
+                    <div
+                      key={message.uuid || index}
+                      className={`p-4 rounded-lg ${
+                        message.message?.role === 'user'
+                          ? 'bg-white border border-claude-200'
+                          : message.message?.role === 'assistant'
+                          ? 'bg-white border border-claude-200'
+                          : 'bg-claude-100'
+                      }`}
+                    >
+                      {/* Message Header */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span className={`text-xs font-medium px-2 py-1 rounded ${
+                          message.message?.role === 'user'
+                            ? 'bg-blue-100 text-blue-700'
+                            : message.message?.role === 'assistant'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-gray-200 text-gray-700'
+                        }`}>
+                          {message.message?.role || message.type}
+                        </span>
+                        <BookmarkButton
+                          sessionId={selectedSession.id}
+                          messageUuid={message.uuid}
+                          projectName={selectedSession.projectName}
+                          isBookmarked={bookmarks.some(b => b.messageUuid === message.uuid)}
+                        />
+                      </div>
+
+                      {/* Message Content */}
+                      <div className="text-claude-900">
+                        <MessageRenderer message={message} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="h-full flex items-center justify-center text-claude-400">
+              Failed to load session
             </div>
           )}
         </div>
