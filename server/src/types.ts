@@ -50,11 +50,16 @@ export interface Session {
 }
 
 export interface Project {
-  name: string;
-  path: string;
+  name: string;           // Original folder name (used as ID)
+  displayName: string;    // Display name (decoded or custom)
+  path: string;           // Claude sessions path (.claude/projects/...)
+  sourcePath?: string;    // Actual project source code path (from session cwd)
   sessions: Session[];
   sessionCount: number;
   lastUpdated: string;
+  markdownFiles: Array<{ name: string; path: string; relativePath: string }>;
+  description: string;
+  avatar?: string;        // Base64 encoded avatar image
 }
 
 export interface Bookmark {

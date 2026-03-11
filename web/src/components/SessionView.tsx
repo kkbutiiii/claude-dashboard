@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Download, Clock, Hash, DollarSign, Terminal } from 'lucide-react'
 import { format } from 'date-fns'
 import { useStore } from '../stores/useStore'
@@ -9,6 +9,7 @@ import { BookmarkButton } from './BookmarkButton'
 export function SessionView() {
   const { projectName: encodedProjectName, sessionId: encodedSessionId } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { selectedSession, setSelectedSession, bookmarks } = useStore()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -16,6 +17,9 @@ export function SessionView() {
   // Decode URL parameters (handle double encoding)
   const projectName = encodedProjectName ? decodeURIComponent(encodedProjectName) : null
   const sessionId = encodedSessionId ? decodeURIComponent(encodedSessionId) : null
+
+  // Get search query from URL for highlighting
+  const searchQuery = searchParams.get('q') || ''
 
   useEffect(() => {
     if (projectName && sessionId) {
@@ -179,7 +183,7 @@ export function SessionView() {
                 />
               </div>
 
-              <MessageRenderer message={message} />
+              <MessageRenderer message={message} searchQuery={searchQuery} />
 
               {message.toolUse?.name && (
                 <div className="mt-2 text-sm text-claude-500 flex items-center gap-1">

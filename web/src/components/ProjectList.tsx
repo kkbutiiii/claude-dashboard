@@ -1,44 +1,170 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Calendar, MessageSquare, Hash, DollarSign, Clock, ChevronRight, Terminal } from 'lucide-react'
-import { formatDistanceToNow } from 'date-fns'
+import {
+  Calendar,
+  MessageSquare,
+  Hash,
+  DollarSign,
+  Clock,
+  ChevronRight,
+  Terminal,
+  FolderOpen,
+  FileText,
+  Edit2,
+  Save,
+  X,
+  ArrowLeft,
+  Folder,
+  Image,
+  Type,
+} from 'lucide-react'
+import { formatDistanceToNow, format } from 'date-fns'
 import { useStore, type Session } from '../stores/useStore'
 import { SessionTagManager } from './SessionTagManager'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+
+interface ProjectInfo {
+  name: string
+  displayName: string
+  path: string
+  sourcePath?: string  // Actual project source code path (from session cwd)
+  sessionCount: number
+  lastUpdated: string
+  description: string
+  avatar?: string
+  markdownFiles: Array<{
+    name: string
+    path: string
+    relativePath: string
+  }>
+}
+
+interface MarkdownFile {
+  name: string
+  relativePath: string
+  content: string
+}
+
+// Generate avatar color based on project name
+function getAvatarColor(name: string): string {
+  const colors = [
+    'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500',
+    'bg-lime-500', 'bg-green-500', 'bg-emerald-500', 'bg-teal-500',
+    'bg-cyan-500', 'bg-sky-500', 'bg-blue-500', 'bg-indigo-500',
+    'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500', 'bg-pink-500',
+    'bg-rose-500',
+  ]
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return colors[Math.abs(hash) % colors.length]
+}
+
+// Get initials from project name
+function getInitials(name: string): string {
+  return name
+    .split(/[-_\s]/)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2)
+}
+
+// Code block component for markdown
+function CodeBlock({ inline, className, children }: { inline?: boolean; className?: string; children?: React.ReactNode }) {
+  const match = /language-(\w+)/.exec(className || '')
+  const language = match ? match[1] : ''
+
+  if (inline) {
+    return (
+      <code className="bg-claude-100 text-claude-800 px-1.5 py-0.5 rounded text-sm font-mono">
+        {children}
+      </code>
+    )
+  }
+
+  return (
+    <SyntaxHighlighter
+      language={language || 'text'}
+      style={oneDark}
+      customStyle={{
+        margin: '0.5rem 0',
+        borderRadius: '0.5rem',
+        fontSize: '0.875rem',
+      }}
+    >
+      {String(children).replace(/\n$/, '')}
+    </SyntaxHighlighter>
+  )
+}
 
 export function ProjectList() {
   const { projectName: encodedProjectName } = useParams()
   const navigate = useNavigate()
   const { projects, selectedProject, setSelectedProject, tags, sessionTags } = useStore()
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null)
   const [projectSessions, setProjectSessions] = useState<Session[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
-  // Decode URL parameter (handle double encoding)
+  // Drawer state for markdown files
+  const [isMarkdownDrawerOpen, setIsMarkdownDrawerOpen] = useState(false)
+  const [selectedMarkdownFile, setSelectedMarkdownFile] = useState<MarkdownFile | null>(null)
+  const [isLoadingMarkdown, setIsLoadingMarkdown] = useState(false)
+
+  // Edit states
+  const [isEditingDescription, setIsEditingDescription] = useState(false)
+  const [descriptionDraft, setDescriptionDraft] = useState('')
+  const [isSavingDescription, setIsSavingDescription] = useState(false)
+
+  const [isEditingDisplayName, setIsEditingDisplayName] = useState(false)
+  const [displayNameDraft, setDisplayNameDraft] = useState('')
+  const [isSavingDisplayName, setIsSavingDisplayName] = useState(false)
+
+  // Avatar upload
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Decode URL parameter
   const projectName = encodedProjectName ? decodeURIComponent(encodedProjectName) : null
 
   useEffect(() => {
     if (projectName) {
       setSelectedProject(projectName)
-      loadProjectSessions(projectName)
+      loadProjectData(projectName)
     }
   }, [projectName, setSelectedProject])
 
-  const loadProjectSessions = async (name: string) => {
+  const loadProjectData = async (name: string) => {
     setIsLoading(true)
     try {
       const response = await fetch(`/api/scanner/projects/${encodeURIComponent(name)}`)
       const data = await response.json()
       if (data.project) {
+        setProjectInfo({
+          name: data.project.name,
+          displayName: data.project.displayName || data.project.name,
+          path: data.project.path,
+          sourcePath: data.project.sourcePath,
+          sessionCount: data.project.sessionCount,
+          lastUpdated: data.project.lastUpdated,
+          description: data.project.description || '',
+          avatar: data.project.avatar,
+          markdownFiles: data.project.markdownFiles || [],
+        })
         setProjectSessions(data.project.sessions || [])
       }
     } catch (error) {
-      console.error('Failed to load sessions:', error)
+      console.error('Failed to load project:', error)
     } finally {
       setIsLoading(false)
     }
   }
 
   const handleSessionClick = (session: Session) => {
-    // Use double encoding to handle special characters in project names
     const encodedProject = encodeURIComponent(encodeURIComponent(session.projectName))
     const encodedSession = encodeURIComponent(session.id)
     navigate(`/session/${encodedProject}/${encodedSession}`)
@@ -52,30 +178,371 @@ export function ProjectList() {
 
   const getSessionTagsList = (sessionId: string) => {
     const tagIds = sessionTags[sessionId] || []
-    return tags.filter(tag => tagIds.includes(tag.id))
+    return tags.filter((tag) => tagIds.includes(tag.id))
+  }
+
+  // Open folder via backend API
+  const handleOpenFolder = async () => {
+    if (!projectName) return
+    try {
+      const response = await fetch(`/api/scanner/projects/${encodeURIComponent(projectName)}/open-folder`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        alert('Failed to open folder')
+      }
+    } catch (error) {
+      console.error('Error opening folder:', error)
+      alert('Failed to open folder')
+    }
+  }
+
+  // Load markdown file content
+  const loadMarkdownFile = useCallback(async (relativePath: string) => {
+    if (!projectName) return
+
+    setIsLoadingMarkdown(true)
+    try {
+      const response = await fetch(
+        `/api/scanner/projects/${encodeURIComponent(projectName)}/markdown?path=${encodeURIComponent(relativePath)}`
+      )
+      const data = await response.json()
+      if (data.content !== undefined) {
+        setSelectedMarkdownFile({
+          name: relativePath.split('/').pop() || relativePath,
+          relativePath,
+          content: data.content,
+        })
+      }
+    } catch (error) {
+      console.error('Failed to load markdown:', error)
+    } finally {
+      setIsLoadingMarkdown(false)
+    }
+  }, [projectName])
+
+  // Open markdown drawer
+  const openMarkdownDrawer = (file: { name: string; relativePath: string }) => {
+    setIsMarkdownDrawerOpen(true)
+    loadMarkdownFile(file.relativePath)
+  }
+
+  // Close markdown drawer
+  const closeMarkdownDrawer = () => {
+    setIsMarkdownDrawerOpen(false)
+    setTimeout(() => setSelectedMarkdownFile(null), 300)
+  }
+
+  // Description editing
+  const startEditDescription = () => {
+    setDescriptionDraft(projectInfo?.description || '')
+    setIsEditingDescription(true)
+  }
+
+  const saveDescription = async () => {
+    if (!projectName) return
+
+    setIsSavingDescription(true)
+    try {
+      const response = await fetch(`/api/scanner/projects/${encodeURIComponent(projectName)}/description`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: descriptionDraft }),
+      })
+
+      if (response.ok) {
+        setProjectInfo((prev) => (prev ? { ...prev, description: descriptionDraft } : null))
+        setIsEditingDescription(false)
+      } else {
+        alert('Failed to save description')
+      }
+    } catch (error) {
+      console.error('Error saving description:', error)
+      alert('Failed to save description')
+    } finally {
+      setIsSavingDescription(false)
+    }
+  }
+
+  const cancelEditDescription = () => {
+    setIsEditingDescription(false)
+    setDescriptionDraft('')
+  }
+
+  // Display name editing
+  const startEditDisplayName = () => {
+    setDisplayNameDraft(projectInfo?.displayName || '')
+    setIsEditingDisplayName(true)
+  }
+
+  const saveDisplayName = async () => {
+    if (!projectName) return
+
+    setIsSavingDisplayName(true)
+    try {
+      const response = await fetch(`/api/scanner/projects/${encodeURIComponent(projectName)}/display-name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: displayNameDraft }),
+      })
+
+      if (response.ok) {
+        setProjectInfo((prev) => (prev ? { ...prev, displayName: displayNameDraft } : null))
+        setIsEditingDisplayName(false)
+      } else {
+        alert('Failed to save display name')
+      }
+    } catch (error) {
+      console.error('Error saving display name:', error)
+      alert('Failed to save display name')
+    } finally {
+      setIsSavingDisplayName(false)
+    }
+  }
+
+  const cancelEditDisplayName = () => {
+    setIsEditingDisplayName(false)
+    setDisplayNameDraft('')
+  }
+
+  // Avatar upload
+  const handleAvatarClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !projectName) return
+
+    setIsUploadingAvatar(true)
+    try {
+      const reader = new FileReader()
+      reader.onload = async (event) => {
+        const base64 = event.target?.result as string
+        if (base64) {
+          const response = await fetch(`/api/scanner/projects/${encodeURIComponent(projectName)}/avatar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ avatar: base64 }),
+          })
+
+          if (response.ok) {
+            setProjectInfo((prev) => (prev ? { ...prev, avatar: base64 } : null))
+          } else {
+            alert('Failed to upload avatar')
+          }
+        }
+        setIsUploadingAvatar(false)
+      }
+      reader.readAsDataURL(file)
+    } catch (error) {
+      console.error('Error uploading avatar:', error)
+      alert('Failed to upload avatar')
+      setIsUploadingAvatar(false)
+    }
   }
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-claude-500">Loading sessions...</div>
+        <div className="text-claude-500">Loading project...</div>
       </div>
     )
   }
 
-  if (selectedProject && projectSessions.length > 0) {
+  // Show project sessions view
+  if (selectedProject && projectInfo) {
     return (
       <div className="h-full overflow-y-auto scrollbar p-6">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-2xl font-bold text-claude-900">{selectedProject}</h1>
-              <p className="text-claude-500 mt-1">{projectSessions.length} sessions</p>
+          {/* Project Header Card */}
+          <div className="card p-6 mb-6">
+            <div className="flex items-start gap-4">
+              {/* Project Avatar - Clickable for upload */}
+              <div
+                onClick={handleAvatarClick}
+                className={`relative w-16 h-16 rounded-xl flex items-center justify-center text-white text-xl font-bold flex-shrink-0 cursor-pointer overflow-hidden group ${
+                  projectInfo.avatar ? '' : getAvatarColor(projectInfo.name)
+                }`}
+              >
+                {projectInfo.avatar ? (
+                  <img src={projectInfo.avatar} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  getInitials(projectInfo.displayName)
+                )}
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Image className="w-6 h-6" />
+                </div>
+                {isUploadingAvatar && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                    <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarChange}
+                className="hidden"
+              />
+
+              <div className="flex-1 min-w-0">
+                {/* Project Display Name - Editable */}
+                {isEditingDisplayName ? (
+                  <div className="flex items-center gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={displayNameDraft}
+                      onChange={(e) => setDisplayNameDraft(e.target.value)}
+                      placeholder="Enter display name..."
+                      className="flex-1 px-3 py-2 border border-claude-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent text-xl font-bold"
+                      autoFocus
+                    />
+                    <button
+                      onClick={saveDisplayName}
+                      disabled={isSavingDisplayName}
+                      className="flex items-center gap-1 px-3 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors disabled:opacity-50"
+                    >
+                      <Save className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={cancelEditDisplayName}
+                      className="flex items-center gap-1 px-3 py-2 bg-claude-100 text-claude-600 rounded-lg hover:bg-claude-200 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 mb-2 group">
+                    <h1 className="text-2xl font-bold text-claude-900">{projectInfo.displayName}</h1>
+                    <button
+                      onClick={startEditDisplayName}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-claude-400 hover:text-accent transition-opacity"
+                    >
+                      <Type className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Original Name (if different) */}
+                {projectInfo.displayName !== projectInfo.name && (
+                  <p className="text-xs text-claude-400 mb-2">{projectInfo.name}</p>
+                )}
+
+                {/* Project Path with Open Folder Button */}
+                <div className="flex items-center gap-2 text-sm text-claude-500 mb-3">
+                  <Folder className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate" title={projectInfo.sourcePath || projectInfo.path}>
+                    {projectInfo.sourcePath || projectInfo.path}
+                  </span>
+                  <button
+                    onClick={handleOpenFolder}
+                    className="flex items-center gap-1 px-2 py-1 bg-claude-100 hover:bg-claude-200 rounded text-claude-600 transition-colors flex-shrink-0"
+                    title="Open in file explorer"
+                  >
+                    <FolderOpen className="w-3 h-3" />
+                    Open
+                  </button>
+                </div>
+
+                {/* Project Description (Editable) */}
+                <div className="mb-3">
+                  {isEditingDescription ? (
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="text"
+                        value={descriptionDraft}
+                        onChange={(e) => setDescriptionDraft(e.target.value)}
+                        placeholder="Enter project description..."
+                        className="flex-1 px-3 py-2 border border-claude-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent text-sm"
+                        autoFocus
+                      />
+                      <button
+                        onClick={saveDescription}
+                        disabled={isSavingDescription}
+                        className="flex items-center gap-1 px-3 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors disabled:opacity-50"
+                      >
+                        <Save className="w-4 h-4" />
+                        {isSavingDescription ? 'Saving...' : 'Save'}
+                      </button>
+                      <button
+                        onClick={cancelEditDescription}
+                        className="flex items-center gap-1 px-3 py-2 bg-claude-100 text-claude-600 rounded-lg hover:bg-claude-200 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 group">
+                      <p className="text-claude-600 text-sm">
+                        {projectInfo.description || 'No description'}
+                      </p>
+                      <button
+                        onClick={startEditDescription}
+                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 text-xs text-claude-500 hover:text-accent transition-opacity"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        Edit
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Project Stats */}
+                <div className="flex flex-wrap items-center gap-4 text-sm text-claude-500">
+                  <span className="flex items-center gap-1">
+                    <MessageSquare className="w-4 h-4" />
+                    {projectInfo.sessionCount} sessions
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-4 h-4" />
+                    Updated {formatDistanceToNow(new Date(projectInfo.lastUpdated), { addSuffix: true })}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Calendar className="w-4 h-4" />
+                    {format(new Date(projectInfo.lastUpdated), 'MMM d, yyyy HH:mm')}
+                  </span>
+                </div>
+
+                {/* Markdown Files */}
+                {projectInfo.markdownFiles.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-claude-200">
+                    <h3 className="text-sm font-medium text-claude-700 mb-2 flex items-center gap-1">
+                      <FileText className="w-4 h-4" />
+                      Documentation ({projectInfo.markdownFiles.length})
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {projectInfo.markdownFiles.slice(0, 5).map((file) => (
+                        <button
+                          key={file.relativePath}
+                          onClick={() => openMarkdownDrawer(file)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-claude-50 hover:bg-claude-100 rounded-lg text-sm text-claude-600 hover:text-claude-800 transition-colors"
+                        >
+                          <FileText className="w-3 h-3" />
+                          {file.name}
+                        </button>
+                      ))}
+                      {projectInfo.markdownFiles.length > 5 && (
+                        <button
+                          onClick={() => openMarkdownDrawer(projectInfo.markdownFiles[0])}
+                          className="px-3 py-1.5 text-sm text-claude-400 hover:text-claude-600"
+                        >
+                          +{projectInfo.markdownFiles.length - 5} more
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
+          {/* Sessions List */}
+          <h2 className="text-lg font-semibold text-claude-900 mb-4">Sessions</h2>
           <div className="space-y-3">
-            {projectSessions.map(session => (
+            {projectSessions.map((session) => (
               <div
                 key={session.id}
                 className="card p-4 hover:shadow-md transition-shadow cursor-pointer group"
@@ -99,7 +566,7 @@ export function ProjectList() {
 
                     {/* Tags */}
                     <div className="flex flex-wrap gap-1 mb-3">
-                      {getSessionTagsList(session.id).map(tag => (
+                      {getSessionTagsList(session.id).map((tag) => (
                         <span
                           key={tag.id}
                           className="badge text-white"
@@ -143,6 +610,100 @@ export function ProjectList() {
             ))}
           </div>
         </div>
+
+        {/* Markdown Files Drawer */}
+        {isMarkdownDrawerOpen && (
+          <div
+            className="fixed inset-0 bg-black/30 z-40 transition-opacity"
+            onClick={closeMarkdownDrawer}
+          />
+        )}
+
+        <div
+          className={`fixed top-0 right-0 h-full w-full max-w-3xl bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${
+            isMarkdownDrawerOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
+          {isLoadingMarkdown ? (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-claude-500">Loading...</div>
+            </div>
+          ) : (
+            <div className="h-full flex flex-col">
+              {/* Drawer Header */}
+              <div className="bg-white border-b border-claude-200 p-4 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={closeMarkdownDrawer}
+                    className="p-2 hover:bg-claude-100 rounded-lg transition-colors"
+                  >
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                  <div>
+                    <h2 className="text-xl font-bold text-claude-900">Documentation</h2>
+                    <p className="text-sm text-claude-500">
+                      {selectedMarkdownFile?.relativePath || 'Select a file'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-1 overflow-hidden">
+                {/* File List Sidebar */}
+                <div className="w-64 border-r border-claude-200 overflow-y-auto bg-claude-50">
+                  <div className="p-2">
+                    <h3 className="text-xs font-semibold text-claude-400 uppercase tracking-wider px-2 py-2">
+                      Markdown Files
+                    </h3>
+                    {projectInfo.markdownFiles.map((file) => (
+                      <button
+                        key={file.relativePath}
+                        onClick={() => loadMarkdownFile(file.relativePath)}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                          selectedMarkdownFile?.relativePath === file.relativePath
+                            ? 'bg-accent text-white'
+                            : 'text-claude-600 hover:bg-claude-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 flex-shrink-0" />
+                          <span className="truncate">{file.name}</span>
+                        </div>
+                        <div className={`text-xs mt-0.5 truncate ${
+                          selectedMarkdownFile?.relativePath === file.relativePath
+                            ? 'text-white/70'
+                            : 'text-claude-400'
+                        }`}>
+                          {file.relativePath}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* File Content */}
+                <div className="flex-1 overflow-y-auto p-6">
+                  {selectedMarkdownFile ? (
+                    <article className="prose prose-claude max-w-none">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code: CodeBlock,
+                        }}
+                      >
+                        {selectedMarkdownFile.content}
+                      </ReactMarkdown>
+                    </article>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-claude-400">
+                      Select a markdown file to view
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     )
   }
@@ -154,23 +715,46 @@ export function ProjectList() {
         <h1 className="text-2xl font-bold text-claude-900 mb-6">All Projects</h1>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {projects.map(project => (
+          {projects.map((project) => (
             <div
               key={project.name}
               onClick={() => navigate(`/project/${encodeURIComponent(encodeURIComponent(project.name))}`)}
               className="card p-5 hover:shadow-lg transition-all cursor-pointer group"
             >
-              <div className="flex items-start justify-between mb-3">
-                <h3 className="font-semibold text-claude-900 text-lg group-hover:text-accent transition-colors">
-                  {project.name}
-                </h3>
-                <span className="badge bg-claude-100 text-claude-600">
-                  {project.sessionCount}
-                </span>
+              <div className="flex items-start gap-3 mb-3">
+                {/* Project Avatar */}
+                <div
+                  className={`w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold flex-shrink-0 overflow-hidden ${
+                    project.avatar ? '' : getAvatarColor(project.name)
+                  }`}
+                >
+                  {project.avatar ? (
+                    <img src={project.avatar} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    getInitials(project.displayName || project.name)
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-claude-900 text-lg group-hover:text-accent transition-colors truncate">
+                    {project.displayName || project.name}
+                  </h3>
+                  <span className="badge bg-claude-100 text-claude-600 text-xs">
+                    {project.sessionCount} sessions
+                  </span>
+                </div>
               </div>
+
+              {/* Description */}
+              {project.description && (
+                <p className="text-sm text-claude-500 mb-3 line-clamp-2">{project.description}</p>
+              )}
+
               <div className="flex items-center gap-2 text-sm text-claude-500">
                 <Calendar className="w-4 h-4" />
-                Last updated {formatDistanceToNow(new Date(project.lastUpdated), { addSuffix: true })}
+                <span className="truncate">
+                  Updated {formatDistanceToNow(new Date(project.lastUpdated), { addSuffix: true })}
+                </span>
               </div>
             </div>
           ))}

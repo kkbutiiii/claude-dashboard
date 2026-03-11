@@ -1,10 +1,19 @@
 import { create } from 'zustand'
 
 export interface Project {
-  name: string
-  path: string
+  name: string              // Original folder name (ID)
+  displayName: string       // Display name (decoded or custom)
+  path: string              // Claude sessions path (.claude/projects/...)
+  sourcePath?: string       // Actual project source code path (from session cwd)
   sessionCount: number
   lastUpdated: string
+  description?: string
+  avatar?: string           // Base64 encoded avatar
+  markdownFiles?: Array<{
+    name: string
+    path: string
+    relativePath: string
+  }>
   sessions?: Session[]
 }
 
