@@ -222,4 +222,21 @@ router.get('/search', async (req, res) => {
   }
 });
 
+// GET /api/scanner/projects/:name/git-history
+router.get('/projects/:name/git-history', async (req, res) => {
+  try {
+    const { name } = req.params;
+    const { limit } = req.query;
+    const commitLimit = limit && typeof limit === 'string' ? parseInt(limit, 10) : 20;
+
+    const scanner = getScanner();
+    const gitHistory = await scanner.getGitHistory(name, commitLimit);
+
+    res.json(gitHistory);
+  } catch (error) {
+    console.error('Error getting git history:', error);
+    res.status(500).json({ error: 'Failed to get git history' });
+  }
+});
+
 export { router as scannerRouter };

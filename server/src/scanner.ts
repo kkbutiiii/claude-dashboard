@@ -1,6 +1,28 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import type { Project, Session, ClaudeMessage } from './types.js';
+
+const execAsync = promisify(exec);
+
+// Markdown files to exclude from documentation list
+const EXCLUDED_MD_FILES = [
+  'license.md',
+  'license',
+  'authors.md',
+  'authors',
+  'contributing.md',
+  'contributing',
+  'code_of_conduct.md',
+  'code-of-conduct.md',
+  'changelog.md',
+  'changelog',
+  'security.md',
+  'security',
+  'notice.md',
+  'notice',
+];
 
 export class ProjectScanner {
   private basePath: string;
@@ -307,6 +329,12 @@ export class ProjectScanner {
           // Recursively scan subdirectories
           await this.scanDirectoryForMarkdown(basePath, fullPath, results);
         } else if (entry.isFile() && entry.name.endsWith('.md')) {
+          // Filter out non-documentation markdown files
+          const fileNameLower = entry.name.toLowerCase();
+          const baseName = fileNameLower.replace('.md', '');
+          if (EXCLUDED_MD_FILES.includes(baseName)) {
+            continue;
+          }
           results.push({
             name: entry.name,
             path: fullPath,
@@ -618,5 +646,170 @@ export class ProjectScanner {
     return Array.from(results.values())
       .sort((a, b) => b.matchCount - a.matchCount)
       .slice(0, limit);
+  }
+
+  // Find git repository root starting from a directory
+  private async findGitRoot(startPath: string, maxDepth: number = 3): Promise<string | null> {
+    let currentPath = startPath;
+    let depth = 0;
+
+    while (depth < maxDepth) {
+      const gitDir = path.join(currentPath, '.git');
+      try {
+        await fs.access(gitDir);
+        return currentPath;
+      } catch {
+        // Check subdirectories (only one level)
+        if (depth === 0) {
+          try {
+            const entries = await fs.readdir(currentPath, { withFileTypes: true });
+            for (const entry of entries) {
+              if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+                const subGitDir = path.join(currentPath, entry.name, '.git');
+                try {
+                  await fs.access(subGitDir);
+                  return path.join(currentPath, entry.name);
+                } catch {
+                  // Continue checking other directories
+                }
+              }
+            }
+          } catch {
+            // Ignore errors reading directory
+          }
+        }
+
+        // Go up one level
+        const parentPath = path.dirname(currentPath);
+        if (parentPath === currentPath) {
+          break;
+        }
+        currentPath = parentPath;
+        depth++;
+      }
+    }
+
+    return null;
+  }
+
+  // Get git commit history for a project
+  async getGitHistory(
+    projectName: string,
+    limit: number = 20
+  ): Promise<{
+    isGitRepo: boolean;
+    branch?: string;
+    commits: Array<{
+      hash: string;
+      message: string;
+      author: string;
+      date: string;
+      shortHash?: string;
+      filesChanged?: number;
+      insertions?: number;
+      deletions?: number;
+    }>;
+    totalCommits?: number;
+    error?: string;
+  }> {
+    // Get project source path if available
+    let startPath: string;
+    try {
+      const project = await this.scanSingleProject(projectName);
+      startPath = project?.sourcePath || path.join(this.basePath, projectName);
+    } catch {
+      startPath = path.join(this.basePath, projectName);
+    }
+
+    // Find git repository root
+    const projectPath = await this.findGitRoot(startPath);
+    if (!projectPath) {
+      return { isGitRepo: false, commits: [] };
+    }
+
+    try {
+      // Get current branch
+      const { stdout: branchOutput } = await execAsync(
+        'git rev-parse --abbrev-ref HEAD',
+        { cwd: projectPath }
+      );
+      const branch = branchOutput.trim();
+
+      // Get commit history with stats
+      const format = '%H|%s|%an|%ad|%h';
+      const { stdout: logOutput } = await execAsync(
+        `git log --pretty=format:"${format}" --date=iso --max-count=${limit}`,
+        { cwd: projectPath }
+      );
+
+      // Get total commit count
+      const { stdout: countOutput } = await execAsync(
+        'git rev-list --count HEAD',
+        { cwd: projectPath }
+      );
+      const totalCommits = parseInt(countOutput.trim(), 10);
+
+      // Parse commits
+      const commits = logOutput
+        .split('\n')
+        .filter(line => line.trim())
+        .map(line => {
+          const parts = line.split('|');
+          return {
+            hash: parts[0] || '',
+            message: parts[1] || '',
+            author: parts[2] || '',
+            date: parts[3] || '',
+            shortHash: parts[4] || '',
+          };
+        });
+
+      // Get stats for each commit (files changed, insertions, deletions)
+      const commitsWithStats = await Promise.all(
+        commits.map(async commit => {
+          try {
+            const { stdout: statOutput } = await execAsync(
+              `git show --stat --format="" ${commit.hash}`,
+              { cwd: projectPath }
+            );
+            const lines = statOutput.split('\n');
+            const lastLine = lines[lines.length - 2] || ''; // Second to last line has the summary
+            const match = lastLine.match(/(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/);
+            return {
+              hash: commit.hash,
+              message: commit.message,
+              author: commit.author,
+              date: commit.date,
+              shortHash: commit.shortHash,
+              filesChanged: match ? parseInt(match[1], 10) : undefined,
+              insertions: match && match[2] ? parseInt(match[2], 10) : undefined,
+              deletions: match && match[3] ? parseInt(match[3], 10) : undefined,
+            };
+          } catch {
+            return {
+              hash: commit.hash,
+              message: commit.message,
+              author: commit.author,
+              date: commit.date,
+              shortHash: commit.shortHash,
+            };
+          }
+        })
+      );
+
+      return {
+        isGitRepo: true,
+        branch,
+        commits: commitsWithStats,
+        totalCommits,
+      };
+    } catch (error) {
+      console.error(`Error getting git history for ${projectName}:`, error);
+      return {
+        isGitRepo: true,
+        commits: [],
+        error: 'Failed to get git history',
+      };
+    }
   }
 }

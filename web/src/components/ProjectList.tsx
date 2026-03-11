@@ -17,6 +17,13 @@ import {
   Folder,
   Image,
   Type,
+  GitBranch,
+  GitCommit,
+  ChevronDown,
+  ChevronUp,
+  User,
+  Plus,
+  Minus,
 } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 import { useStore, type Session } from '../stores/useStore'
@@ -46,6 +53,25 @@ interface MarkdownFile {
   name: string
   relativePath: string
   content: string
+}
+
+interface GitCommit {
+  hash: string
+  message: string
+  author: string
+  date: string
+  shortHash: string
+  filesChanged?: number
+  insertions?: number
+  deletions?: number
+}
+
+interface GitHistory {
+  isGitRepo: boolean
+  branch?: string
+  commits: GitCommit[]
+  totalCommits?: number
+  error?: string
 }
 
 // Generate avatar color based on project name
@@ -131,6 +157,140 @@ function CodeBlock({ inline, className, children }: { inline?: boolean; classNam
   )
 }
 
+// GitInfo component
+function GitInfo({
+  gitHistory,
+  isExpanded,
+  onToggle,
+  isLoading,
+}: {
+  gitHistory: GitHistory | null
+  isExpanded: boolean
+  onToggle: () => void
+  isLoading: boolean
+}) {
+  if (isLoading) {
+    return (
+      <div className="card p-4 mt-4">
+        <div className="flex items-center gap-2 text-claude-500">
+          <div className="w-4 h-4 border-2 border-claude-300 border-t-accent rounded-full animate-spin" />
+          Loading git history...
+        </div>
+      </div>
+    )
+  }
+
+  if (!gitHistory || !gitHistory.isGitRepo) {
+    return null
+  }
+
+  if (gitHistory.error) {
+    return (
+      <div className="card p-4 mt-4">
+        <div className="flex items-center gap-2 text-claude-500">
+          <GitBranch className="w-4 h-4" />
+          <span>Git repository (unable to load history)</span>
+        </div>
+      </div>
+    )
+  }
+
+  const { branch, commits, totalCommits } = gitHistory
+
+  return (
+    <div className="card mt-4 overflow-hidden">
+      {/* Header - Clickable */}
+      <button
+        onClick={onToggle}
+        className="w-full p-4 flex items-center justify-between hover:bg-claude-50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-2 py-1 bg-git-bg rounded text-git-text text-sm font-medium">
+            <GitBranch className="w-4 h-4" />
+            {branch || 'main'}
+          </div>
+          <span className="text-sm text-claude-600">
+            {totalCommits?.toLocaleString() || commits.length} commits
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-claude-400">
+          <span className="text-sm">{isExpanded ? 'Collapse' : 'Expand'}</span>
+          {isExpanded ? (
+            <ChevronUp className="w-4 h-4" />
+          ) : (
+            <ChevronDown className="w-4 h-4" />
+          )}
+        </div>
+      </button>
+
+      {/* Expanded Content */}
+      {isExpanded && (
+        <div className="border-t border-claude-200">
+          <div className="max-h-96 overflow-y-auto">
+            {commits.map((commit, index) => (
+              <div
+                key={commit.hash}
+                className={`p-4 ${index !== commits.length - 1 ? 'border-b border-claude-100' : ''}`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 mt-0.5">
+                    <div className="w-8 h-8 rounded-full bg-git-bg flex items-center justify-center">
+                      <GitCommit className="w-4 h-4 text-git-text" />
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-claude-900 break-words">
+                      {commit.message}
+                    </p>
+                    <div className="flex items-center gap-3 mt-1.5 text-xs text-claude-500 flex-wrap">
+                      <span className="flex items-center gap-1">
+                        <User className="w-3 h-3" />
+                        {commit.author}
+                      </span>
+                      <span className="font-mono text-claude-400">
+                        {commit.shortHash || commit.hash.substring(0, 7)}
+                      </span>
+                      <span>{new Date(commit.date).toLocaleDateString()}</span>
+                    </div>
+                    {(commit.filesChanged !== undefined ||
+                      commit.insertions !== undefined ||
+                      commit.deletions !== undefined) && (
+                      <div className="flex items-center gap-3 mt-2 text-xs">
+                        {commit.filesChanged !== undefined && (
+                          <span className="text-claude-500">
+                            {commit.filesChanged} file{commit.filesChanged !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {commit.insertions !== undefined && (
+                          <span className="flex items-center gap-0.5 text-green-600">
+                            <Plus className="w-3 h-3" />
+                            {commit.insertions}
+                          </span>
+                        )}
+                        {commit.deletions !== undefined && (
+                          <span className="flex items-center gap-0.5 text-red-600">
+                            <Minus className="w-3 h-3" />
+                            {commit.deletions}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {commits.length >= 20 && (
+            <div className="p-3 text-center text-xs text-claude-400 border-t border-claude-100">
+              Showing last 20 commits
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ProjectList() {
   const { projectName: encodedProjectName } = useParams()
   const navigate = useNavigate()
@@ -157,6 +317,11 @@ export function ProjectList() {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Git history
+  const [gitHistory, setGitHistory] = useState<GitHistory | null>(null)
+  const [isGitExpanded, setIsGitExpanded] = useState(false)
+  const [isLoadingGit, setIsLoadingGit] = useState(false)
+
   // Decode URL parameter
   const projectName = encodedProjectName ? decodeURIComponent(encodedProjectName) : null
 
@@ -164,6 +329,7 @@ export function ProjectList() {
     if (projectName) {
       setSelectedProject(projectName)
       loadProjectData(projectName)
+      loadGitHistory(projectName)
     }
   }, [projectName, setSelectedProject])
 
@@ -190,6 +356,20 @@ export function ProjectList() {
       console.error('Failed to load project:', error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const loadGitHistory = async (name: string) => {
+    setIsLoadingGit(true)
+    try {
+      const response = await fetch(`/api/scanner/projects/${encodeURIComponent(name)}/git-history?limit=20`)
+      const data = await response.json()
+      setGitHistory(data)
+    } catch (error) {
+      console.error('Failed to load git history:', error)
+      setGitHistory({ isGitRepo: false, commits: [], error: 'Failed to load git history' })
+    } finally {
+      setIsLoadingGit(false)
     }
   }
 
@@ -574,6 +754,14 @@ export function ProjectList() {
             </div>
           </div>
 
+          {/* Git History */}
+          <GitInfo
+            gitHistory={gitHistory}
+            isExpanded={isGitExpanded}
+            onToggle={() => setIsGitExpanded(!isGitExpanded)}
+            isLoading={isLoadingGit}
+          />
+
           {/* Sessions List */}
           <h2 className="text-lg font-semibold text-claude-900 mb-4">Sessions</h2>
           <div className="space-y-3">
@@ -655,7 +843,7 @@ export function ProjectList() {
         )}
 
         <div
-          className={`fixed top-0 right-0 h-full w-full max-w-3xl bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${
+          className={`fixed top-0 right-0 h-full w-full max-w-6xl bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${
             isMarkdownDrawerOpen ? 'translate-x-0' : 'translate-x-full'
           }`}
         >
@@ -685,7 +873,7 @@ export function ProjectList() {
 
               <div className="flex flex-1 overflow-hidden">
                 {/* File List Sidebar */}
-                <div className="w-64 border-r border-claude-200 overflow-y-auto bg-claude-50">
+                <div className="w-80 border-r border-claude-200 overflow-y-auto bg-claude-50">
                   <div className="p-2">
                     <h3 className="text-xs font-semibold text-claude-400 uppercase tracking-wider px-2 py-2">
                       Markdown Files

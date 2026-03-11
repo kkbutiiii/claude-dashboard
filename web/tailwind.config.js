@@ -25,6 +25,10 @@ export default {
           DEFAULT: '#d97706',
           light: '#fbbf24',
           dark: '#b45309',
+        },
+        git: {
+          bg: '#f3f4f6',
+          text: '#4b5563',
         }
       },
       fontFamily: {
