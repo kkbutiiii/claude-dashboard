@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { scannerRouter } from './routes/scanner.js';
@@ -8,6 +9,7 @@ import { bookmarkRouter } from './routes/bookmark.js';
 import { tagRouter } from './routes/tag.js';
 import { setupWebSocket } from './websocket.js';
 import { startFileWatcher } from './watcher.js';
+import { initDatabase, closeDatabase } from './db/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +19,17 @@ const PORT = process.env.PORT || 3727;
 
 // Middleware
 app.use(cors());
+app.use(compression({
+  filter: (req, res) => {
+    // 只压缩大于 1KB 的响应
+    const contentLength = res.getHeader('content-length');
+    if (contentLength && Number(contentLength) < 1024) {
+      return false;
+    }
+    return compression.filter(req, res);
+  },
+  level: 6, // 压缩级别 1-9，6 是性能和压缩率的平衡
+}));
 app.use(express.json());
 
 // API routes
@@ -43,6 +56,9 @@ app.get('*', (req, res) => {
 const server = app.listen(PORT, () => {
   console.log(`🚀 Claude Dashboard server running on http://localhost:${PORT}`);
 
+  // Initialize SQLite database
+  initDatabase();
+
   // Start file watcher
   const claudePath = process.env.CLAUDE_PROJECTS_PATH || `${process.env.HOME}/.claude/projects`;
   startFileWatcher(claudePath);
@@ -55,6 +71,7 @@ setupWebSocket(server);
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
+  closeDatabase();
   server.close(() => {
     console.log('Server closed');
     process.exit(0);

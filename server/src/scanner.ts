@@ -2,9 +2,34 @@ import fs from 'fs/promises';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { LRUCache } from 'lru-cache';
 import type { Project, Session, ClaudeMessage } from './types.js';
+import {
+  saveProject,
+  saveSession,
+  saveMessage,
+  getAllProjects,
+  getSessionsByProject,
+  searchMessagesFTS,
+  deleteProject,
+  deleteSession,
+  getSessionLastScanned,
+} from './db/index.js';
 
 const execAsync = promisify(exec);
+
+// 搜索缓存配置
+const searchCache = new LRUCache<string, any>({
+  max: 100, // 最多缓存 100 个搜索结果
+  ttl: 1000 * 60 * 5, // 5 分钟 TTL
+  updateAgeOnGet: true, // 访问时更新过期时间
+});
+
+// 生成搜索缓存键
+function generateSearchCacheKey(query: string, options: object): string {
+  const optionsStr = JSON.stringify(options);
+  return `${query}::${optionsStr}`;
+}
 
 // Markdown files to exclude from documentation list
 const EXCLUDED_MD_FILES = [
@@ -38,16 +63,21 @@ export class ProjectScanner {
   invalidateCache(): void {
     this.cache.clear();
     this.scanningPromise = null;
+    searchCache.clear();
+    console.log('All caches cleared');
   }
 
   // 清除特定项目的缓存
   invalidateProjectCache(projectName: string): void {
     this.cache.delete(`project:${projectName}`);
     this.cache.delete('projects');
+    // 清除搜索缓存，因为项目内容可能已变更
+    searchCache.clear();
+    console.log(`Cache invalidated for project: ${projectName}`);
   }
 
   async scanAllProjects(): Promise<Project[]> {
-    // 检查缓存
+    // 检查内存缓存
     const cached = this.cache.get('projects') as { data: Project[]; timestamp: number } | undefined;
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
       return cached.data;
@@ -56,6 +86,21 @@ export class ProjectScanner {
     // 防止并发扫描
     if (this.scanningPromise) {
       return this.scanningPromise;
+    }
+
+    // 优先从 SQLite 读取
+    try {
+      const dbProjects = getAllProjects();
+      if (dbProjects.length > 0) {
+        // 补充会话信息
+        for (const project of dbProjects) {
+          project.sessions = getSessionsByProject(project.name);
+        }
+        this.cache.set('projects', { data: dbProjects, timestamp: Date.now() });
+        return dbProjects;
+      }
+    } catch (error) {
+      console.warn('Failed to read from SQLite, falling back to file scan:', error);
     }
 
     this.scanningPromise = this.performScan();
@@ -77,6 +122,19 @@ export class ProjectScanner {
 
       for (const entry of entries) {
         if (entry.isDirectory()) {
+          // 检查项目是否需要增量扫描
+          const projectNeedsUpdate = await this.checkProjectNeedsUpdate(entry.name);
+
+          if (!projectNeedsUpdate) {
+            // 使用数据库中的缓存数据
+            const cachedProject = await this.getProjectFromDB(entry.name);
+            if (cachedProject) {
+              projects.push(cachedProject);
+              continue;
+            }
+          }
+
+          // 需要重新扫描
           const project = await this.scanProject(entry.name);
           if (project) {
             projects.push(project);
@@ -90,6 +148,65 @@ export class ProjectScanner {
     return projects.sort((a, b) =>
       new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime()
     );
+  }
+
+  // 检查项目是否需要更新
+  private async checkProjectNeedsUpdate(projectName: string): Promise<boolean> {
+    const projectPath = path.join(this.basePath, projectName);
+
+    try {
+      // 获取数据库中的会话列表
+      const dbSessions = getSessionsByProject(projectName);
+
+      // 读取文件系统中的会话文件
+      const entries = await fs.readdir(projectPath, { withFileTypes: true });
+      const sessionFiles = entries.filter(e => e.isFile() && e.name.endsWith('.jsonl'));
+
+      // 如果文件数量不同，需要更新
+      if (sessionFiles.length !== dbSessions.length) {
+        return true;
+      }
+
+      // 检查每个文件的修改时间
+      for (const entry of sessionFiles) {
+        const sessionId = entry.name.replace('.jsonl', '');
+        const filePath = path.join(projectPath, entry.name);
+        const stats = await fs.stat(filePath);
+        const fileMtime = stats.mtimeMs;
+
+        // 获取数据库中记录的文件修改时间
+        const dbMtime = getSessionLastScanned(sessionId);
+
+        // 如果文件修改时间比数据库记录的新，或者数据库中没有记录，需要更新
+        if (!dbMtime || fileMtime > dbMtime) {
+          return true;
+        }
+      }
+
+      // 所有文件都未变更，不需要更新
+      return false;
+    } catch {
+      // 出错时默认需要更新
+      return true;
+    }
+  }
+
+  // 从数据库获取项目信息
+  private async getProjectFromDB(projectName: string): Promise<Project | null> {
+    try {
+      const projects = getAllProjects();
+      const project = projects.find(p => p.name === projectName);
+
+      if (project) {
+        // 补充会话信息
+        project.sessions = getSessionsByProject(projectName);
+        return project;
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   // 扫描单个项目（带缓存）
@@ -167,7 +284,7 @@ export class ProjectScanner {
         ? await this.getProjectAvatar(sourcePath)
         : await this.getProjectAvatar(projectPath);
 
-      return {
+      const project: Project = {
         name: projectName,
         displayName,
         path: projectPath,
@@ -179,6 +296,20 @@ export class ProjectScanner {
         description,
         avatar,
       };
+
+      // 保存到 SQLite
+      try {
+        saveProject(project);
+        for (const session of sessions) {
+          const filePath = path.join(projectPath, `${session.id}.jsonl`);
+          const stats = await fs.stat(filePath);
+          saveSession(session, stats.mtimeMs);
+        }
+      } catch (dbError) {
+        console.warn('Failed to save to SQLite:', dbError);
+      }
+
+      return project;
     } catch (error) {
       console.error(`Error scanning project ${projectName}:`, error);
       return null;
@@ -549,6 +680,82 @@ export class ProjectScanner {
       return [];
     }
 
+    // 检查缓存
+    const cacheKey = generateSearchCacheKey(query, options);
+    const cached = searchCache.get(cacheKey) as Array<{
+      session: Session;
+      matchedMessages: ClaudeMessage[];
+      matchCount: number;
+    }> | undefined;
+    if (cached) {
+      return cached;
+    }
+
+    // 优先使用 SQLite FTS5 全文搜索
+    try {
+      const ftsQuery = searchTerms.map(t => `"${t}"`).join(' ');
+      const ftsResults = searchMessagesFTS(ftsQuery, {
+        project: projectFilter,
+        role: roleFilter,
+        dateFrom,
+        dateTo,
+        limit,
+      });
+
+      if (ftsResults.length > 0) {
+        // 按会话分组结果
+        const sessionMap = new Map<string, { session: Session | null; matchedMessages: ClaudeMessage[]; matchCount: number }>();
+
+        for (const result of ftsResults) {
+          const sessionId = result.sessionId;
+          if (!sessionMap.has(sessionId)) {
+            // 获取会话信息
+            const sessions = getSessionsByProject(projectFilter || '');
+            const session = sessions.find(s => s.id === sessionId) || null;
+            sessionMap.set(sessionId, { session, matchedMessages: [], matchCount: 0 });
+          }
+
+          const entry = sessionMap.get(sessionId)!;
+          entry.matchCount++;
+
+          // 只保留前 5 条匹配消息
+          if (entry.matchedMessages.length < 5) {
+            entry.matchedMessages.push({
+              uuid: result.messageUuid,
+              sessionId,
+              timestamp: new Date().toISOString(),
+              type: 'assistant',
+              message: {
+                role: 'assistant',
+                content: result.content,
+              },
+            } as ClaudeMessage);
+          }
+        }
+
+        // 构建最终结果
+        const finalResults: Array<{ session: Session; matchedMessages: ClaudeMessage[]; matchCount: number }> = [];
+        for (const [sessionId, data] of sessionMap) {
+          if (data.session) {
+            finalResults.push({
+              session: data.session,
+              matchedMessages: data.matchedMessages,
+              matchCount: data.matchCount,
+            });
+          }
+        }
+
+        // 按匹配数排序
+        finalResults.sort((a, b) => b.matchCount - a.matchCount);
+
+        // 存入缓存
+        searchCache.set(cacheKey, finalResults.slice(0, limit));
+        return finalResults.slice(0, limit);
+      }
+    } catch (ftsError) {
+      console.warn('FTS search failed, falling back to file scan:', ftsError);
+    }
+
     const results: Map<string, { session: Session; matchedMessages: ClaudeMessage[]; matchCount: number }> = new Map();
 
     // Get list of projects to search
@@ -677,9 +884,14 @@ export class ProjectScanner {
     }
 
     // Convert to array, sort by match count, and limit results
-    return Array.from(results.values())
+    const finalResults = Array.from(results.values())
       .sort((a, b) => b.matchCount - a.matchCount)
       .slice(0, limit);
+
+    // 存入缓存
+    searchCache.set(cacheKey, finalResults);
+
+    return finalResults;
   }
 
   // Find git repository root starting from a directory

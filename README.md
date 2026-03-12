@@ -71,9 +71,20 @@
 - **右侧预览** - 文档在抽屉中预览，不离开当前页面
 
 ### ⚡ 性能优化
+
+#### 服务端优化
+- **API 响应压缩** - gzip 压缩，减少 60-80% 传输体积
+- **SQLite 本地索引** - 使用 SQLite + FTS5 全文搜索，搜索从秒级降至毫秒级
+- **增量扫描** - 基于文件修改时间，只扫描变更的文件，O(n) → O(Δn)
+- **LRU 搜索缓存** - 缓存 100 个热门搜索结果，TTL 5 分钟
 - **服务器端缓存** - 30秒缓存机制，避免重复扫描文件系统
 - **单例扫描器** - 复用扫描器实例，防止重复创建
 - **按需加载** - 查询单个项目时只扫描目标项目
+
+#### 前端优化
+- **虚拟列表** - react-window 实现，支持 >10,000 条记录流畅渲染
+- **状态管理拆分** - 细粒度 Zustand store，减少重渲染
+- **组件级缓存** - 使用 React.memo 避免不必要重渲染
 - **前端防抖** - 30秒内不重复请求项目列表
 - **并发保护** - 防止同时发起多个扫描请求
 
@@ -209,12 +220,16 @@ npm run dev
 - Zustand (状态管理)
 - React Markdown + Prism.js
 - Lucide React (图标)
+- react-window (虚拟列表)
 
 **后端:**
 - Node.js 20 + Express
 - TypeScript
 - WebSocket (ws)
 - chokidar (文件监控)
+- better-sqlite3 (SQLite 数据库)
+- compression (响应压缩)
+- lru-cache (搜索缓存)
 
 ### 项目结构
 
@@ -226,20 +241,26 @@ claude-dashboard/
 │   │   │   ├── ProjectList.tsx
 │   │   │   ├── SessionView.tsx
 │   │   │   ├── MessageRenderer.tsx
+│   │   │   ├── VirtualSessionList.tsx  # 虚拟列表
 │   │   │   └── ...
 │   │   ├── stores/            # Zustand 状态管理
-│   │   │   └── useStore.ts
+│   │   │   ├── useStore.ts    # 旧版 store（保持兼容）
+│   │   │   ├── projectStore.ts    # 项目状态
+│   │   │   ├── sessionStore.ts    # 会话状态
+│   │   │   └── uiStore.ts         # UI 状态
 │   │   └── App.tsx
 │   ├── e2e/                   # Playwright E2E 测试
 │   └── dist/                  # 构建输出
 ├── server/                    # 后端服务
 │   ├── src/
 │   │   ├── routes/            # API 路由
+│   │   ├── db/                # SQLite 数据库模块
+│   │   │   └── index.ts       # 数据库操作
 │   │   ├── scanner.ts         # 项目扫描器
 │   │   ├── watcher.ts         # 文件监控
 │   │   └── index.ts           # 服务入口
 │   └── public/                # 前端静态文件
-├── data/                      # 数据存储
+├── data/                      # 数据存储（SQLite）
 ├── docs/                      # 文档
 └── docker-compose.yml
 ```
@@ -330,7 +351,8 @@ cp -r data.backup/* data/
 查看 [ROADMAP.md](./ROADMAP.md) 了解：
 
 - ✅ 已实现：会话浏览、搜索、书签、标签、Git 集成
-- 🚧 近期：消息图片展示、深色模式、键盘快捷键
+- ✅ 性能优化：SQLite 索引、增量扫描、虚拟列表、API 压缩
+- 🚧 近期：React Query 集成、组件懒加载、深色模式
 - 📅 中期：使用统计、会话摘要、智能标签
 - 🔮 长期：语义搜索、AI 问答、VSCode 插件
 

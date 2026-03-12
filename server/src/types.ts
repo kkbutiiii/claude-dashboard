@@ -5,6 +5,7 @@ export interface ClaudeMessage {
   sessionId: string;
   timestamp: string;
   type: 'user' | 'assistant' | 'system' | 'summary' | 'progress';
+  subtype?: string;
   message: {
     role: 'user' | 'assistant';
     content: string | ContentItem[];
@@ -23,6 +24,7 @@ export interface ClaudeMessage {
   toolUseResult?: unknown;
   costUSD?: number;
   durationMs?: number;
+  cwd?: string;
 }
 
 export interface ContentItem {
