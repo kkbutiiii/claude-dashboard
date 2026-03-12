@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd C:/Users/11639/Documents/trae_projects/ClaudeDashboard && git status\",\"description\":\"查看 git 状态\"}",
+  "error": "Exit code 128\nfatal: not a git repository (or any of the parent directories): .git",
+  "timestamp": "2026-03-12T08:52:56.944Z",
+  "retry_count": 1
+}

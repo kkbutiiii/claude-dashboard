@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"npx tsc --noEmit\",\"description\":\"验证 TypeScript 代码\"}",
+  "error": "Exit code 2\nsrc/App.tsx(8,32): error TS2322: Type 'Promise<typeof import(\"C:/Users/11639/Documents/trae_projects/ClaudeDashboard/claude-dashboard/web/src/components/ProjectList\")>' is not assignable to type 'Promise<{ default: ComponentType<any>; }>'.\r\n  Property 'default' is missing in type 'typeof import(\"C:/Users/11639/Documents/trae_projects/ClaudeDashboard/claude-dashboard/web/src/components/ProjectList\")' but required in type '{ default: ComponentType<any>; }'.\r\nsrc/App.tsx(9,32): error TS...",
+  "timestamp": "2026-03-12T08:58:57.107Z",
+  "retry_count": 1
+}

@@ -62,7 +62,7 @@ interface UIState {
   performSearch: (query: string, filters?: object) => Promise<void>
 }
 
-export const useUIStore = create<UIState>((set, get) => ({
+export const useUIStore = create<UIState>((set) => ({
   // 初始状态
   searchQuery: '',
   searchResults: [],
