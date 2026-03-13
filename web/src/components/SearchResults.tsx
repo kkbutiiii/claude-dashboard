@@ -420,7 +420,7 @@ export function SearchResults() {
               <div
                 key={session.id}
                 className="card p-4 hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => navigate(`/sessions/${encodeURIComponent(session.projectName)}/${encodeURIComponent(session.id)}?q=${encodeURIComponent(query)}`)}
+                onClick={() => navigate(`/session/${encodeURIComponent(session.projectName)}/${encodeURIComponent(session.id)}?q=${encodeURIComponent(query)}`)}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">

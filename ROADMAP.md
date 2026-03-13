@@ -232,6 +232,12 @@
 - ✅ 项目内会话搜索 - 在项目详情页快速筛选会话（按名称或 ID）
 - ✅ Resume 命令复制 - 一键复制 `claude --resume <session-id>` 命令
 
+### 2026-03-13（SessionContent 组件提取）
+- ✅ 提取可复用 SessionContent 组件 - 统一抽屉和全页会话详情展示
+- ✅ 简化 SessionView - 改为容器组件，只处理 URL 参数和数据加载
+- ✅ 改造 ProjectList 抽屉 - 使用 SessionContent 替代内联实现
+- ✅ 功能同步 - 抽屉和全页共享搜索、高亮、书签、导出等全部功能
+
 ---
 
 ## 待办优化清单（新建议）

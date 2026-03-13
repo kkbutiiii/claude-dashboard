@@ -24,15 +24,12 @@ import {
   User,
   Plus,
   Minus,
-  Download,
-  ExternalLink,
   Search,
 } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 import { useStore, type Session } from '../stores/useStore'
 import { SessionTagManager } from './SessionTagManager'
-import { MessageRenderer } from './MessageRenderer'
-import { BookmarkButton } from './BookmarkButton'
+import { SessionContent } from './SessionContent'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -299,7 +296,7 @@ function GitInfo({
 export function ProjectList() {
   const { projectName: encodedProjectName } = useParams()
   const navigate = useNavigate()
-  const { projects, selectedProject, setSelectedProject, tags, sessionTags, bookmarks } = useStore()
+  const { projects, selectedProject, setSelectedProject, tags, sessionTags } = useStore()
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null)
   const [projectSessions, setProjectSessions] = useState<Session[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -334,6 +331,11 @@ export function ProjectList() {
 
   // Session search within project
   const [sessionSearchQuery, setSessionSearchQuery] = useState('')
+
+  // Session display name editing
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
+  const [editSessionName, setEditSessionName] = useState('')
+  const [isSavingSessionName, setIsSavingSessionName] = useState(false)
 
   // Decode URL parameter
   const projectName = encodedProjectName ? decodeURIComponent(encodedProjectName) : null
@@ -414,6 +416,59 @@ export function ProjectList() {
     const resumeCommand = `claude --resume ${sessionId}`
     navigator.clipboard.writeText(resumeCommand)
     alert(`Resume command copied to clipboard: ${resumeCommand}`)
+  }
+
+  // Session display name editing handlers
+  const handleStartEditSessionName = (session: Session) => {
+    setEditingSessionId(session.id)
+    setEditSessionName(session.displayName || '')
+  }
+
+  const handleCancelEditSessionName = () => {
+    setEditingSessionId(null)
+    setEditSessionName('')
+  }
+
+  const handleSaveSessionName = async (session: Session) => {
+    const trimmedName = editSessionName.trim()
+    if (!trimmedName || trimmedName === session.displayName) {
+      handleCancelEditSessionName()
+      return
+    }
+
+    setIsSavingSessionName(true)
+    try {
+      const response = await fetch(
+        `/api/sessions/${encodeURIComponent(session.projectName)}/${encodeURIComponent(session.id)}/display-name`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ displayName: trimmedName }),
+        }
+      )
+
+      if (response.ok) {
+        // Update local state
+        setProjectSessions((prev) =>
+          prev.map((s) =>
+            s.id === session.id ? { ...s, displayName: trimmedName } : s
+          )
+        )
+        // Also update selected session if open
+        if (selectedSession?.id === session.id) {
+          setSelectedSession({ ...selectedSession, displayName: trimmedName })
+        }
+        handleCancelEditSessionName()
+      } else {
+        console.error('Failed to save session display name')
+        alert('保存失败，请重试')
+      }
+    } catch (error) {
+      console.error('Error saving session display name:', error)
+      alert('保存失败，请重试')
+    } finally {
+      setIsSavingSessionName(false)
+    }
   }
 
   const getSessionTagsList = (sessionId: string) => {
@@ -847,17 +902,67 @@ export function ProjectList() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="font-semibold text-claude-900 truncate">{session.displayName || session.id}</h3>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleResumeSession(session.id)
-                        }}
-                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 bg-claude-100 hover:bg-claude-200 rounded text-xs text-claude-600 transition-opacity"
-                      >
-                        <Terminal className="w-3 h-3" />
-                        Copy resume cmd
-                      </button>
+                      {editingSessionId === session.id ? (
+                        <div
+                          className="flex items-center gap-2 flex-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="text"
+                            value={editSessionName}
+                            onChange={(e) => setEditSessionName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleSaveSessionName(session)
+                              } else if (e.key === 'Escape') {
+                                handleCancelEditSessionName()
+                              }
+                            }}
+                            className="flex-1 px-2 py-1 text-sm border border-accent rounded focus:outline-none focus:ring-2 focus:ring-accent/50"
+                            placeholder="输入会话名称"
+                            autoFocus
+                            disabled={isSavingSessionName}
+                          />
+                          <button
+                            onClick={() => handleSaveSessionName(session)}
+                            disabled={isSavingSessionName}
+                            className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors disabled:opacity-50"
+                          >
+                            <Save className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={handleCancelEditSessionName}
+                            disabled={isSavingSessionName}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <h3 className="font-semibold text-claude-900 truncate">{session.displayName || session.id}</h3>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleStartEditSessionName(session)
+                            }}
+                            className="opacity-0 group-hover:opacity-100 p-1 text-claude-400 hover:text-accent hover:bg-accent/10 rounded transition-all"
+                            title="编辑名称"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleResumeSession(session.id)
+                            }}
+                            className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 bg-claude-100 hover:bg-claude-200 rounded text-xs text-claude-600 transition-opacity"
+                          >
+                            <Terminal className="w-3 h-3" />
+                            Copy resume cmd
+                          </button>
+                        </>
+                      )}
                     </div>
 
                     {/* Tags */}
@@ -1019,128 +1124,20 @@ export function ProjectList() {
               <div className="text-claude-500">Loading session...</div>
             </div>
           ) : selectedSession ? (
-            <div className="h-full flex flex-col">
-              {/* Drawer Header */}
-              <div className="bg-white border-b border-claude-200 p-4 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <button
-                    onClick={closeSessionDrawer}
-                    className="p-2 hover:bg-claude-100 rounded-lg transition-colors"
-                  >
-                    <ArrowLeft className="w-5 h-5" />
-                  </button>
-                  <div>
-                    <h2 className="text-xl font-bold text-claude-900">{selectedSession.id}</h2>
-                    <p className="text-sm text-claude-500">
-                      {getProjectDisplayName({ name: selectedSession.projectName })} • {format(new Date(selectedSession.createdAt), 'MMM d, yyyy HH:mm')}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      const cmd = `claude --resume ${selectedSession.id}`
-                      navigator.clipboard.writeText(cmd)
-                      alert(`Copied: ${cmd}`)
-                    }}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-claude-600 hover:bg-claude-100 rounded-lg transition-colors"
-                    title="Copy resume command"
-                  >
-                    <Terminal className="w-4 h-4" />
-                    Resume
-                  </button>
-                  <button
-                    onClick={() => {
-                      window.open(`/api/sessions/${encodeURIComponent(selectedSession.projectName)}/${encodeURIComponent(selectedSession.id)}/export/markdown`, '_blank')
-                    }}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-claude-600 hover:bg-claude-100 rounded-lg transition-colors"
-                  >
-                    <Download className="w-4 h-4" />
-                    Export
-                  </button>
-                  <button
-                    onClick={() => {
-                      const encodedProject = encodeURIComponent(encodeURIComponent(selectedSession.projectName))
-                      const encodedSession = encodeURIComponent(selectedSession.id)
-                      navigate(`/session/${encodedProject}/${encodedSession}`)
-                    }}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm text-claude-600 hover:bg-claude-100 rounded-lg transition-colors"
-                    title="Open in full page"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Stats Bar */}
-              <div className="bg-claude-50 border-b border-claude-200 px-6 py-3">
-                <div className="flex items-center gap-6 text-sm text-claude-600">
-                  <span className="flex items-center gap-1">
-                    <MessageSquare className="w-4 h-4" />
-                    {selectedSession.messageCount} messages
-                  </span>
-                  {selectedSession.totalTokens && (
-                    <span className="flex items-center gap-1">
-                      <Hash className="w-4 h-4" />
-                      {selectedSession.totalTokens.toLocaleString()} tokens
-                    </span>
-                  )}
-                  {selectedSession.estimatedCost && (
-                    <span className="flex items-center gap-1">
-                      <DollarSign className="w-4 h-4" />
-                      ${selectedSession.estimatedCost.toFixed(4)}
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-4 h-4" />
-                    {format(new Date(selectedSession.updatedAt), 'MMM d, HH:mm')}
-                  </span>
-                </div>
-              </div>
-
-              {/* Messages List */}
-              <div className="flex-1 overflow-y-auto p-6 bg-claude-50">
-                <div className="max-w-3xl mx-auto space-y-4">
-                  {selectedSession.messages?.map((message, index) => (
-                    <div
-                      key={message.uuid || index}
-                      className={`p-4 rounded-lg ${
-                        message.message?.role === 'user'
-                          ? 'bg-white border border-claude-200'
-                          : message.message?.role === 'assistant'
-                          ? 'bg-white border border-claude-200'
-                          : 'bg-claude-100'
-                      }`}
-                    >
-                      {/* Message Header */}
-                      <div className="flex items-center justify-between mb-2">
-                        <span className={`text-xs font-medium px-2 py-1 rounded ${
-                          message.message?.role === 'user'
-                            ? 'bg-blue-100 text-blue-700'
-                            : message.message?.role === 'assistant'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-gray-200 text-gray-700'
-                        }`}>
-                          {message.message?.role || message.type}
-                        </span>
-                        <BookmarkButton
-                          sessionId={selectedSession.id}
-                          messageUuid={message.uuid}
-                          projectName={selectedSession.projectName}
-                          isBookmarked={bookmarks.some(b => b.messageUuid === message.uuid)}
-                        />
-                      </div>
-
-                      {/* Message Content */}
-                      <div className="text-claude-900">
-                        <MessageRenderer message={message} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <SessionContent
+              session={selectedSession}
+              projectName={selectedSession.projectName}
+              drawerMode={true}
+              onClose={closeSessionDrawer}
+              onExport={() => {
+                window.open(`/api/sessions/${encodeURIComponent(selectedSession.projectName)}/${encodeURIComponent(selectedSession.id)}/export/markdown`, '_blank')
+              }}
+              onResume={() => {
+                const cmd = `claude --resume ${selectedSession.id}`
+                navigator.clipboard.writeText(cmd)
+                alert(`Copied: ${cmd}`)
+              }}
+            />
           ) : (
             <div className="h-full flex items-center justify-center text-claude-400">
               Failed to load session
