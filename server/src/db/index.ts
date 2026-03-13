@@ -70,6 +70,7 @@ function createTables(): void {
       id TEXT PRIMARY KEY,
       project_name TEXT NOT NULL,
       file_path TEXT NOT NULL,
+      display_name TEXT,
       message_count INTEGER DEFAULT 0,
       created_at TEXT,
       updated_at TEXT,
@@ -80,6 +81,13 @@ function createTables(): void {
       FOREIGN KEY (project_name) REFERENCES projects(name) ON DELETE CASCADE
     )
   `);
+
+  // 迁移：为已存在的表添加 display_name 字段
+  try {
+    db.exec(`ALTER TABLE sessions ADD COLUMN display_name TEXT`);
+  } catch {
+    // 字段已存在，忽略错误
+  }
 
   // 消息表 - 仅存储元数据，不存储完整内容
   db.exec(`
@@ -229,6 +237,7 @@ export function getSessionsByProject(projectName: string): Session[] {
     id: string;
     project_name: string;
     file_path: string;
+    display_name: string | null;
     message_count: number;
     created_at: string;
     updated_at: string;
@@ -240,6 +249,7 @@ export function getSessionsByProject(projectName: string): Session[] {
     id: row.id,
     projectName: row.project_name,
     filePath: row.file_path,
+    displayName: row.display_name || undefined,
     messageCount: row.message_count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -247,6 +257,29 @@ export function getSessionsByProject(projectName: string): Session[] {
     estimatedCost: row.estimated_cost,
     messages: [],
   }));
+}
+
+// 保存会话显示名称
+export function saveSessionDisplayName(sessionId: string, displayName: string): void {
+  const db = getDatabase();
+
+  const stmt = db.prepare(`
+    UPDATE sessions SET display_name = ? WHERE id = ?
+  `);
+
+  stmt.run(displayName, sessionId);
+}
+
+// 获取会话显示名称
+export function getSessionDisplayName(sessionId: string): string | null {
+  const db = getDatabase();
+
+  const stmt = db.prepare(`
+    SELECT display_name FROM sessions WHERE id = ?
+  `);
+
+  const row = stmt.get(sessionId) as { display_name: string | null } | undefined;
+  return row?.display_name || null;
 }
 
 // 获取会话的最后扫描时间

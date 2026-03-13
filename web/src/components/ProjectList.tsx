@@ -26,6 +26,7 @@ import {
   Minus,
   Download,
   ExternalLink,
+  Search,
 } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 import { useStore, type Session } from '../stores/useStore'
@@ -330,6 +331,9 @@ export function ProjectList() {
   const [isSessionDrawerOpen, setIsSessionDrawerOpen] = useState(false)
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
   const [isLoadingSession, setIsLoadingSession] = useState(false)
+
+  // Session search within project
+  const [sessionSearchQuery, setSessionSearchQuery] = useState('')
 
   // Decode URL parameter
   const projectName = encodedProjectName ? decodeURIComponent(encodedProjectName) : null
@@ -790,9 +794,51 @@ export function ProjectList() {
           />
 
           {/* Sessions List */}
-          <h2 className="text-lg font-semibold text-claude-900 mb-4">Sessions</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-claude-900">Sessions</h2>
+            <span className="text-sm text-claude-500">
+              {projectSessions.length} total
+            </span>
+          </div>
+
+          {/* Session Search */}
+          <div className="mb-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-claude-400" />
+              <input
+                type="text"
+                value={sessionSearchQuery}
+                onChange={(e) => setSessionSearchQuery(e.target.value)}
+                placeholder="搜索会话名称或 ID..."
+                className="w-full pl-9 pr-8 py-2 text-sm border border-claude-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
+              />
+              {sessionSearchQuery && (
+                <button
+                  onClick={() => setSessionSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-claude-400 hover:text-claude-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {sessionSearchQuery && (
+              <p className="text-xs text-claude-500 mt-1">
+                找到 {projectSessions.filter(s =>
+                  (s.displayName || s.id).toLowerCase().includes(sessionSearchQuery.toLowerCase())
+                ).length} 个匹配
+              </p>
+            )}
+          </div>
+
           <div className="space-y-3">
-            {projectSessions.map((session) => (
+            {projectSessions
+              .filter((session) => {
+                if (!sessionSearchQuery) return true
+                const searchLower = sessionSearchQuery.toLowerCase()
+                const displayName = (session.displayName || session.id).toLowerCase()
+                return displayName.includes(searchLower)
+              })
+              .map((session) => (
               <div
                 key={session.id}
                 className="card p-4 hover:shadow-md transition-shadow cursor-pointer group"
@@ -801,7 +847,7 @@ export function ProjectList() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="font-semibold text-claude-900 truncate">{session.id}</h3>
+                      <h3 className="font-semibold text-claude-900 truncate">{session.displayName || session.id}</h3>
                       <button
                         onClick={(e) => {
                           e.stopPropagation()

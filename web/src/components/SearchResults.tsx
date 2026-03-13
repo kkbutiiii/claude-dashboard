@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Search, ChevronRight, Hash, Clock, Filter, X, Calendar, User, ArrowLeft, Download, Terminal } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 import { MessageRenderer } from './MessageRenderer'
@@ -47,6 +47,7 @@ interface SessionDetail {
 }
 
 export function SearchResults() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const query = searchParams.get('q') || ''
   const [results, setResults] = useState<SearchResult[]>([])
@@ -419,7 +420,7 @@ export function SearchResults() {
               <div
                 key={session.id}
                 className="card p-4 hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => loadSession(session.projectName, session.id)}
+                onClick={() => navigate(`/sessions/${encodeURIComponent(session.projectName)}/${encodeURIComponent(session.id)}?q=${encodeURIComponent(query)}`)}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">

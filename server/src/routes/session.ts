@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { ProjectScanner } from '../scanner.js';
+import { saveSessionDisplayName } from '../db/index.js';
 
 const router = Router();
 
@@ -72,6 +73,34 @@ router.get('/:projectName/:sessionId/export/markdown', async (req, res) => {
   } catch (error) {
     console.error('Error exporting session:', error);
     res.status(500).json({ error: 'Failed to export session' });
+  }
+});
+
+// POST /api/sessions/:projectName/:sessionId/display-name
+router.post('/:projectName/:sessionId/display-name', async (req, res) => {
+  try {
+    const { projectName, sessionId } = req.params;
+    const { displayName } = req.body;
+
+    if (typeof displayName !== 'string') {
+      return res.status(400).json({ error: 'Display name is required' });
+    }
+
+    // Verify session exists
+    const scanner = getScanner();
+    const session = await scanner.getSession(projectName, sessionId);
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Save display name to database
+    saveSessionDisplayName(sessionId, displayName);
+
+    res.json({ success: true, displayName });
+  } catch (error) {
+    console.error('Error saving session display name:', error);
+    res.status(500).json({ error: 'Failed to save session display name' });
   }
 });
 

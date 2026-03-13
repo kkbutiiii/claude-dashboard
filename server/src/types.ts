@@ -43,6 +43,7 @@ export interface Session {
   id: string;
   projectName: string;
   filePath: string;
+  displayName?: string;
   messages: ClaudeMessage[];
   messageCount: number;
   createdAt: string;

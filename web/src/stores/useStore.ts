@@ -21,6 +21,7 @@ export interface Session {
   id: string
   projectName: string
   filePath: string
+  displayName?: string
   messageCount: number
   createdAt: string
   updatedAt: string
